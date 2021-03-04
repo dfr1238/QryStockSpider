@@ -1,0 +1,1 @@
+pyinstaller --clean --win-private-assemblies -F --add-binary ".\chromedriver.exe";"." .\QryStock.spec
