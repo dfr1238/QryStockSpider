@@ -120,48 +120,49 @@ class QryStock:
         for date in self.date_Element.options:
             self.dateList.append(date.text)
     
-    def set_COID(self,coidString):
+    def set_COID(self,coidData):
         wait = ui.WebDriverWait(self.driver,4)
         wait.until(lambda driver: driver.find_element_by_id(id_='StockNo'))
-        #time.sleep(.4)
-        #time.sleep(.5)
         self.inputCoid_Element = self.driver.find_element_by_id(id_='StockNo')
         self.inputCoid_Element.click()
-        self.inputCoid_Element.send_keys(coidString,Keys.ENTER)
-        #time.sleep(.1)
+        #time.sleep(.5)
+        self.inputCoid_Element.send_keys(coidData[0],Keys.ENTER)
+        #time.sleep(.5)
         wait = ui.WebDriverWait(self.driver,5)
         try:
             wait.until(lambda driver: driver.find_element_by_name('radioStockNo'))
         except selenium.common.exceptions.TimeoutException:
             self.inputCoid_Element = self.driver.find_element_by_id(id_='StockNo')
             self.inputCoid_Element.click()
-            self.inputCoid_Element.send_keys(coidString,Keys.ENTER)
+            self.inputCoid_Element.click()
+            #time.sleep(.5)
+            self.inputCoid_Element.send_keys(coidData[0],Keys.ENTER)
+            self.inputCoid_Element.send_keys(Keys.ENTER)
             try:
-                self.inputCoid_Element.click()
-                self.inputCoid_Element.send_keys(coidString,Keys.ENTER)
+                #time.sleep(.5)
                 wait.until(lambda driver: driver.find_element_by_name('radioStockNo'))
             except selenium.common.exceptions.TimeoutException:
-                print(f'找不到{coidString}')
-                self.no_exist_List.append(coidString)
+                print(f'找不到{coidData}')
+                self.no_exist_List.append(coidData)
                 return False
             self.sub_Coid_Element = self.driver.find_element_by_name('radioStockNo')
             if self.sub_Coid_Element.is_selected():
                 return True
             else:
-                print(f'找不到{coidString}')
-                self.no_exist_List.append(coidString)
+                print(f'找不到{coidData}')
+                self.no_exist_List.append(coidData)
                 return False
         self.sub_Coid_Element = self.driver.find_element_by_name('radioStockNo')
         if self.sub_Coid_Element.is_selected():
             #print(f'已選擇股號：{self.sub_Coid_Element.get_attribute("VALUE")}')
             return True
         else:
-            print(f'找不到{coidString}')
-            self.no_exist_List.append(coidString)
+            print(f'找不到{coidData}')
+            self.no_exist_List.append(coidData)
             return False
 
     def submit(self):
-        #time.sleep(.1)
+        #time.sleep(.3)
         submit_btn = self.driver.find_element_by_name('sub')
         submit_btn.click()
         wait = ui.WebDriverWait(self.driver,3)
@@ -171,7 +172,7 @@ class QryStock:
             num = float(table_element.text)
             return round(num,2)
         except selenium.common.exceptions.TimeoutException:
-            self.set_COID(self.current_coid[0])
+            self.set_COID(self.current_coid)
             return None
 
     def submitGetLastWeek(self):
@@ -182,7 +183,7 @@ class QryStock:
             self.date_Element.select_by_index(self.current_Date_Index+1)
         except selenium.common.exceptions.NoSuchElementException:
             self.driver.refresh()
-            self.set_COID(self.current_coid[0])
+            self.set_COID(self.current_coid)
             self.submitGetLastWeek()
 
     def submitGetThisWeek(self):
@@ -196,48 +197,122 @@ class QryStock:
             self.set_COID(self.current_coid[0])
             self.submitGetThisWeek()
 
+    def q_Sumbit_Double_Check(self):
+        self.driver.refresh()
+        self.current_Process=1
+        local_NoExistList = self.no_exist_List
+        self.no_exist_List=[]
+        self.current_Date_Index=self.dateList.index(self.current_Date)
+        for coid in local_NoExistList:
+            currentWeek=None
+            lastWeek=None
+            numChange=None
+            self.driver.refresh()
+            self.current_coid=coid
+            sg.one_line_progress_meter('爬取遺漏資料中...',self.current_Process,len(local_NoExistList),key='Process',orientation='h')
+            if(self.set_COID(self.current_coid)):
+                print(f'正在抓取股號：{self.current_coid}的資料')
+                for i in range(1,4):
+                    self.submitGetThisWeek()
+                    currentWeek = self.submit()
+                    if(currentWeek==None):
+                        print(f'目前 {self.current_coid} 的抓取週抓取出錯第 {i} 次，重試中...')
+                        self.driver.refresh()
+                        time.sleep(3)
+                        self.set_COID(self.current_coid)
+                        continue
+                    else:
+                        break
+                if(currentWeek==None):
+                    print(f'找不到{self.current_coid}')
+                    self.no_exist_List.append(self.current_coid)
+                    self.current_Process+=1
+                    continue
+                if(self.set_COID(self.current_coid)):
+                    for i in range(1,4):
+                        self.submitGetLastWeek()
+                        lastWeek = self.submit()
+                        if(lastWeek==None):
+                            print(f'目前 {self.current_coid} 的抓取週之上週抓取出錯第 {i} 次，重試中...')
+                            self.driver.refresh()
+                            self.set_COID(self.current_coid)
+                            continue
+                        else:
+                            break
+                    if(lastWeek==None):
+                        print(f'找不到{self.current_coid}')
+                        self.no_exist_List.append(self.current_coid)
+                        self.current_Process+=1
+                        continue
+                else:
+                    self.current_Process+=1
+                    continue
+                numChange=currentWeek-lastWeek
+                numChange=round(numChange,2)
+                dict_add={"股號":str(local_NoExistList[local_NoExistList.index(coid)][0]),"股名":str(local_NoExistList[local_NoExistList.index(coid)][1]),"抓取週":self.current_Date,"千張持股變化":numChange,"抓取週千張持股":currentWeek,"抓取週之上週千張持股":lastWeek}
+                print(dict_add)
+                cols=["股號","股名","抓取週","千張持股變化","抓取週千張持股","抓取週之上週千張持股"]
+                self.crawlDataDF = self.crawlDataDF.append(dict_add, ignore_index=True)
+                self.crawlDataDF = self.crawlDataDF[cols]
+                self.current_Process+=1
+            else:
+                self.current_Process+=1
+                continue
+    
     def q_Sumbit(self,date):
         self.crawlDataDF = DataFrame(self.coidList_Dict)
-        self.current_Process=0
+        self.current_Process=1
         self.current_Date_Index=self.dateList.index(date)
         self.current_Date = date
         for coid in self.coidList:
+            currentWeek=None
+            lastWeek=None
+            numChange=None
+            self.driver.refresh()
             self.current_coid=coid
-            sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist-1,key='Process',orientation='h')
-            if(self.set_COID(self.current_coid[0])):
+            button = sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist,key='Process',orientation='h')
+            if(button == False and self.current_Process < self.exist):
+                button_sub = sg.popup_yes_no('是否取消？',title='手動取消')
+                if(button_sub=='Yes'):
+                    return False
+                else:
+                    sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist,key='Process',orientation='h')
+            if(self.set_COID(self.current_coid)):
                 print(f'正在抓取股號：{coid}的資料')
                 for i in range(1,4):
                     self.submitGetThisWeek()
                     currentWeek = self.submit()
                     if(currentWeek==None):
                         print(f'目前 {coid} 的抓取週抓取出錯第 {i} 次，重試中...')
-                        self.set_COID(self.current_coid[0])
+                        self.driver.refresh()
+                        time.sleep(3)
+                        self.set_COID(self.current_coid)
                         continue
                     else:
                         break
                 if(currentWeek==None):
                     print(f'找不到{coid}')
+                    self.no_exist_List.append(coid)
                     self.current_Process+=1
-                    sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist-1,key='Process',orientation='h')
                     continue
-                if(self.set_COID(self.current_coid[0])):
+                if(self.set_COID(self.current_coid)):
                     for i in range(1,4):
                         self.submitGetLastWeek()
                         lastWeek = self.submit()
                         if(lastWeek==None):
                             print(f'目前 {coid} 的抓取週之上週抓取出錯第 {i} 次，重試中...')
-                            self.set_COID(self.current_coid[0])
+                            self.driver.refresh()
+                            self.set_COID(self.current_coid)
                             continue
                         else:
                             break
                     if(lastWeek==None):
                         print(f'找不到{coid}')
+                        self.no_exist_List.append(coid)
                         self.current_Process+=1
-                        sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist-1,key='Process',orientation='h')
                         continue
                 else:
                     self.current_Process+=1
-                    sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist-1,key='Process',orientation='h')
                     continue
                 numChange=currentWeek-lastWeek
                 numChange=round(numChange,2)
@@ -247,12 +322,11 @@ class QryStock:
                 self.crawlDataDF = self.crawlDataDF.append(dict_add, ignore_index=True)
                 self.crawlDataDF = self.crawlDataDF[cols]
                 self.current_Process+=1
-                sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist-1,key='Process',orientation='h')
             else:
                 self.current_Process+=1
-                sg.one_line_progress_meter('爬取資料',self.current_Process,self.exist-1,key='Process',orientation='h')
                 continue
-        
+        self.q_Sumbit_Double_Check()
+        return True
         pass
 Qry = QryStock()
 Qry.get_Date()
@@ -279,11 +353,15 @@ while True:
             if(start_crawl(values['-Date-'])):
                 table_Window.close()
                 sub_main_Window.close()
-                Qry.q_Sumbit(values['-Date-'])
-                if(len(Qry.no_exist_List)!=0):
-                    sg.popup_ok(f'以下為不存在的股號\n{Qry.no_exist_List}',title='不存在之股號')
-                table_Window = Pygui.open_Table(Qry)
-                Qry.sort('股號',False)
+                if(Qry.q_Sumbit(values['-Date-'])):
+                    if(len(Qry.no_exist_List)!=0):
+                        print(f'以下為不存在的股號\n{Qry.no_exist_List}')
+                        sg.popup_ok(f'以下為不存在的股號\n{Qry.no_exist_List}',title='不存在之股號')
+                    table_Window = Pygui.open_Table(Qry)
+                    Qry.sort('股號',False)
+                else:
+                    sub_main_Window.close()
+                    table_Window = Pygui.open_Table(Qry)
         if event in ('取消',sg.WIN_CLOSED):
             sub_main_Window.close()
 
@@ -291,11 +369,15 @@ while True:
         if event == '確定':
             if(start_crawl(values['-Date-'])):
                 main_Window.close()
-                Qry.q_Sumbit(values['-Date-'])
-                if(len(Qry.no_exist_List)!=0):
-                    sg.popup_ok(f'以下為不存在的股號\n{Qry.no_exist_List}',title='不存在之股號')
-                table_Window = Pygui.open_Table(Qry)
-                Qry.sort('股號',False)
+                if(Qry.q_Sumbit(values['-Date-'])):
+                    if(len(Qry.no_exist_List)!=0):
+                        print(f'以下為不存在的股號\n{Qry.no_exist_List}')
+                        sg.popup_ok(f'以下為不存在的股號\n{Qry.no_exist_List}',title='不存在之股號')
+                    table_Window = Pygui.open_Table(Qry)
+                    Qry.sort('股號',False)
+                else:
+                    main_Window.close()
+                    break
                 
         if event in ('取消',sg.WIN_CLOSED):
             break
